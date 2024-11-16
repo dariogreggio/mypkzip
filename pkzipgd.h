@@ -34,7 +34,50 @@ struct __attribute__((__packed__)) ZIP_HEADER {
   uint16_t extrafield_len;
   // filename (variable
   // extra field (variable
-  } header;
+  };
+
+struct __attribute__((__packed__)) ZIP_CENTRAL_DIRECTORY_HEADER {
+  uint32_t signature;
+  uint16_t version;
+  uint16_t version_needed;
+  uint16_t flags;
+  uint16_t compression;
+  uint16_t mod_time;
+  uint16_t mod_date;
+  uint32_t crc32;
+  uint32_t compressedSize;
+  uint32_t uncompressedSize;
+  uint16_t filename_len;
+  uint16_t extrafield_len;
+  uint16_t file_comment_len;
+  uint16_t disk_number_start;
+  uint16_t int_attr;
+  uint16_t ext_attr;
+  uint32_t header_offset;
+  // filename (variable
+  // extra field (variable
+  // file comment (variable
+  };
+
+struct __attribute__((__packed__)) ZIP_CENTRAL_DIRECTORY_END {
+  uint32_t signature;
+  uint16_t disk_number;
+  uint16_t disk_number_cd;
+  uint16_t disk_cd_entries;
+  uint16_t total_entries;
+  uint16_t cd_size;
+  uint32_t cd_offset_disk;
+  uint32_t comment_len;
+  // comment (variable
+  };
+
+struct __attribute__((__packed__)) ZIP_EXTRAFIELD_INFOZIP {
+    uint16_t id;
+    uint16_t len;
+    uint8_t ver;
+    uint32_t crc;
+    char text[5*2+2];
+    } comment;
 
 
 
@@ -109,6 +152,7 @@ enum __attribute__((__packed__)) {
 /* Max size of LZ dictionary. */
 #define TINFL_LZ_DICT_SIZE 16384  //32768
 #warning RIDURRE e vedere che cazzo fa
+
 
 typedef uint32_t tinfl_bit_buf_t;
 #define TINFL_BITBUF_SIZE (32)

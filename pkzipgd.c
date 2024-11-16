@@ -571,8 +571,8 @@ uint32_t mz_adler32(uint32_t adler, const unsigned char *ptr, size_t buf_len) {
   
   if(!ptr)
     return MZ_ADLER32_INIT;
-  while (buf_len)  {
-    for (i = 0; i + 7 < block_len; i += 8, ptr += 8)      {
+  while(buf_len) {
+    for(i=0; i + 7 < block_len; i += 8, ptr += 8) {
       s1 += ptr[0], s2 += s1;
       s1 += ptr[1], s2 += s1;
       s1 += ptr[2], s2 += s1;
@@ -582,7 +582,7 @@ uint32_t mz_adler32(uint32_t adler, const unsigned char *ptr, size_t buf_len) {
       s1 += ptr[6], s2 += s1;
       s1 += ptr[7], s2 += s1;
       }
-    for (; i < block_len; ++i)
+    for(; i < block_len; ++i)
       s1 += *ptr++, s2 += s1;
     s1 %= 0xfff1, s2 %= 0xfff1;
     buf_len -= block_len;
@@ -697,16 +697,18 @@ int decompress6(SUPERFILE *f1,SUPERFILE *f2,uint32_t n,uint32_t *len,uint32_t *c
   return i;
   }
 
-int compress(SUPERFILE *f1,const char *s,uint32_t n,uint32_t *len,uint32_t *crc) {
+int compress(SUPERFILE *f1,enum FILE_DEVICE d,const char *s,uint32_t n,uint32_t *len,uint32_t *crc) {
   uint8_t ch;
   int i=0;
   SUPERFILE f2;
   char *filename;
   
-  *crc=0;
+  *crc=0xffffffff;
 
-  getDrive(s,&f2,&filename);    // usare dest!
-  if(SuperFileOpen(&f2,s,'r',TYPE_BINARY)) {
+  getDrive(s,NULL,&filename);  
+  f2.drive=d;   // preferisco così
+  
+  if(SuperFileOpen(&f2,filename,OPEN_READ,TYPE_BINARY | SHARE_READ)) {
     while(i<n && SuperFileRead(&f2,&ch,1) == 1) {
       if(SuperFileWrite(f1,&ch,1) != 1) {
         break;
@@ -716,6 +718,7 @@ int compress(SUPERFILE *f1,const char *s,uint32_t n,uint32_t *len,uint32_t *crc)
       }
     SuperFileClose(&f2);
     }
+  *crc=~Reflect32(*crc);
   *len=i;
   return i;
   }
@@ -787,27 +790,27 @@ static tdefl_sym_freq *tdefl_radix_sort_syms(unsigned int num_syms, tdefl_sym_fr
   tdefl_sym_freq *pCur_syms = pSyms0, *pNew_syms = pSyms1;
 
   memset(hist,0,sizeof(hist));
-  for (i = 0; i < num_syms; i++)    {
+  for(i=0; i < num_syms; i++) {
     unsigned int freq = pSyms0[i].m_key;
     hist[freq & 0xFF]++;
     hist[256 + ((freq >> 8) & 0xFF)]++;
     }
-    while ((total_passes > 1) && (num_syms == hist[(total_passes - 1) * 256]))
-        total_passes--;
-    for (pass_shift = 0, pass = 0; pass < total_passes; pass++, pass_shift += 8)    {
-      const uint32_t *pHist = &hist[pass << 8];
-      unsigned int offsets[256], cur_ofs = 0;
-      for (i = 0; i < 256; i++)        {
-          offsets[i] = cur_ofs;
-          cur_ofs += pHist[i];
-        }
-      for (i = 0; i < num_syms; i++)
-          pNew_syms[offsets[(pCur_syms[i].m_key >> pass_shift) & 0xFF]++] = pCur_syms[i];
-        {
-            tdefl_sym_freq *t = pCur_syms;
-            pCur_syms = pNew_syms;
-            pNew_syms = t;
-        }
+  while((total_passes > 1) && (num_syms == hist[(total_passes - 1) * 256]))
+      total_passes--;
+  for(pass_shift = 0, pass = 0; pass < total_passes; pass++, pass_shift += 8) {
+    const uint32_t *pHist = &hist[pass << 8];
+    unsigned int offsets[256], cur_ofs = 0;
+    for(i=0; i < 256; i++)        {
+      offsets[i] = cur_ofs;
+      cur_ofs += pHist[i];
+      }
+    for(i=0; i < num_syms; i++)
+      pNew_syms[offsets[(pCur_syms[i].m_key >> pass_shift) & 0xFF]++] = pCur_syms[i];
+      {
+          tdefl_sym_freq *t = pCur_syms;
+          pCur_syms = pNew_syms;
+          pNew_syms = t;
+      }
     }
   return pCur_syms;
   }
@@ -816,16 +819,16 @@ static tdefl_sym_freq *tdefl_radix_sort_syms(unsigned int num_syms, tdefl_sym_fr
 static void tdefl_calculate_minimum_redundancy(tdefl_sym_freq *A, int n) {
   int root, leaf, next, avbl, used, dpth;
 
-  if (n == 0)
+  if(n == 0)
       return;
-  else if (n == 1)    {
+  else if(n == 1) {
       A[0].m_key = 1;
       return;
   }
   A[0].m_key += A[1].m_key;
   root = 0;
   leaf = 2;
-  for (next = 1; next < n - 1; next++)    {
+  for(next=1; next < n - 1; next++) {
       if (leaf >= n || A[root].m_key < A[leaf].m_key)        {
         A[next].m_key = A[root].m_key;
         A[root++].m_key = (uint16_t)next;
@@ -840,18 +843,18 @@ static void tdefl_calculate_minimum_redundancy(tdefl_sym_freq *A, int n) {
           A[next].m_key = (uint16_t)(A[next].m_key + A[leaf++].m_key);
     }
   A[n - 2].m_key = 0;
-  for (next = n - 3; next >= 0; next--)
+  for(next = n - 3; next >= 0; next--)
       A[next].m_key = A[A[next].m_key].m_key + 1;
   avbl = 1;
   used = dpth = 0;
   root = n - 2;
   next = n - 1;
-  while (avbl > 0)     {
-    while (root >= 0 && (int)A[root].m_key == dpth)         {
+  while(avbl > 0) {
+    while(root >= 0 && (int)A[root].m_key == dpth)         {
       used++;
       root--;
       }
-    while (avbl > used)        {
+    while(avbl > used) {
       A[next--].m_key = (uint16_t)(dpth);
       avbl--;
       }
@@ -866,23 +869,23 @@ enum __attribute__((__packed__)) {
     TDEFL_MAX_SUPPORTED_HUFF_CODESIZE = 32
 };
 static void tdefl_huffman_enforce_max_code_size(int *pNum_codes, int code_list_len, int max_code_size) {
-    int i;
-    uint32_t total = 0;
-    if (code_list_len <= 1)
-        return;
-    for (i = max_code_size + 1; i <= TDEFL_MAX_SUPPORTED_HUFF_CODESIZE; i++)
-        pNum_codes[max_code_size] += pNum_codes[i];
-    for (i = max_code_size; i > 0; i--)
-        total += (((uint32_t)pNum_codes[i]) << (max_code_size - i));
-    while (total != (1UL << max_code_size))    {
+  int i;
+  uint32_t total = 0;
+  if(code_list_len <= 1)
+      return;
+  for(i = max_code_size + 1; i <= TDEFL_MAX_SUPPORTED_HUFF_CODESIZE; i++)
+      pNum_codes[max_code_size] += pNum_codes[i];
+  for(i = max_code_size; i > 0; i--)
+      total += (((uint32_t)pNum_codes[i]) << (max_code_size - i));
+    while(total != (1UL << max_code_size)) {
         pNum_codes[max_code_size]--;
-        for (i = max_code_size - 1; i > 0; i--)
-            if (pNum_codes[i])            {
-                pNum_codes[i]--;
-                pNum_codes[i + 1] += 2;
-                break;
-            }
-        total--;
+      for(i = max_code_size - 1; i > 0; i--)
+        if(pNum_codes[i]) {
+          pNum_codes[i]--;
+          pNum_codes[i + 1] += 2;
+          break;
+        }
+      total--;
     }
   }
 
@@ -891,16 +894,16 @@ static void tdefl_optimize_huffman_table(tdefl_compressor *d, int table_num, int
   unsigned int next_code[TDEFL_MAX_SUPPORTED_HUFF_CODESIZE + 1];
 
   memset(num_codes,0,sizeof(num_codes));
-  if (static_table)    {
-    for (i = 0; i < table_len; i++)
+  if(static_table) {
+    for(i=0; i < table_len; i++)
       num_codes[d->m_huff_code_sizes[table_num][i]]++;
     }
-    else    {
+    else {
       tdefl_sym_freq syms0[TDEFL_MAX_HUFF_SYMBOLS], syms1[TDEFL_MAX_HUFF_SYMBOLS], *pSyms;
       int num_used_syms = 0;
       const uint16_t *pSym_count = &d->m_huff_count[table_num][0];
-      for (i = 0; i < table_len; i++)
-        if (pSym_count[i])            {
+      for(i=0; i < table_len; i++)
+        if(pSym_count[i]) {
           syms0[num_used_syms].m_key = (uint16_t)pSym_count[i];
           syms0[num_used_syms++].m_sym_index = (uint16_t)i;
           }
@@ -908,23 +911,23 @@ static void tdefl_optimize_huffman_table(tdefl_compressor *d, int table_num, int
       pSyms = tdefl_radix_sort_syms(num_used_syms, syms0, syms1);
       tdefl_calculate_minimum_redundancy(pSyms, num_used_syms);
 
-      for (i = 0; i < num_used_syms; i++)
+      for(i=0; i < num_used_syms; i++)
           num_codes[pSyms[i].m_key]++;
 
       tdefl_huffman_enforce_max_code_size(num_codes, num_used_syms, code_size_limit);
 
       memset(d->m_huff_code_sizes[table_num],0,sizeof(d->m_huff_code_sizes[table_num]));
       memset(d->m_huff_codes[table_num],0,sizeof(d->m_huff_codes[table_num]));
-      for (i = 1, j = num_used_syms; i <= code_size_limit; i++)
-          for (l = num_codes[i]; l > 0; l--)
+      for(i=1, j = num_used_syms; i <= code_size_limit; i++)
+          for(l = num_codes[i]; l > 0; l--)
               d->m_huff_code_sizes[table_num][pSyms[--j].m_sym_index] = (uint8_t)(i);
       }
 
     next_code[1] = 0;
-    for (j = 0, i = 2; i <= code_size_limit; i++)
+    for(j=0, i = 2; i <= code_size_limit; i++)
       next_code[i] = j = ((j + num_codes[i - 1]) << 1);
 
-    for (i = 0; i < table_len; i++)    {
+    for(i=0; i < table_len; i++) {
       unsigned int rev_code = 0, code, code_size;
       if ((code_size = d->m_huff_code_sizes[table_num][i]) == 0)
         continue;
@@ -1001,11 +1004,11 @@ static void tdefl_start_dynamic_block(tdefl_compressor *d) {
   tdefl_optimize_huffman_table(d, 0, TDEFL_MAX_HUFF_SYMBOLS_0, 15, FALSE);
   tdefl_optimize_huffman_table(d, 1, TDEFL_MAX_HUFF_SYMBOLS_1, 15, FALSE);
 
-  for (num_lit_codes = 286; num_lit_codes > 257; num_lit_codes--)
-    if (d->m_huff_code_sizes[0][num_lit_codes - 1])
+  for(num_lit_codes = 286; num_lit_codes > 257; num_lit_codes--)
+    if(d->m_huff_code_sizes[0][num_lit_codes - 1])
       break;
-  for (num_dist_codes = 30; num_dist_codes > 1; num_dist_codes--)
-    if (d->m_huff_code_sizes[1][num_dist_codes - 1])
+  for(num_dist_codes = 30; num_dist_codes > 1; num_dist_codes--)
+    if(d->m_huff_code_sizes[1][num_dist_codes - 1])
       break;
 
   memcpy(code_sizes_to_pack, &d->m_huff_code_sizes[0][0], num_lit_codes);
@@ -1016,28 +1019,28 @@ static void tdefl_start_dynamic_block(tdefl_compressor *d) {
   rle_repeat_count = 0;
 
   memset(&d->m_huff_count[2][0], 0, sizeof(d->m_huff_count[2][0]) * TDEFL_MAX_HUFF_SYMBOLS_2);
-  for (i = 0; i < total_code_sizes_to_pack; i++)    {
+  for(i=0; i < total_code_sizes_to_pack; i++) {
       uint8_t code_size = code_sizes_to_pack[i];
-      if (!code_size)        {
+      if(!code_size)        {
           TDEFL_RLE_PREV_CODE_SIZE();
-          if (++rle_z_count == 138)            {
+          if(++rle_z_count == 138)            {
               TDEFL_RLE_ZERO_CODE_SIZE();
           }
         }
         else        {
           TDEFL_RLE_ZERO_CODE_SIZE();
-          if (code_size != prev_code_size)            {
+          if(code_size != prev_code_size)            {
               TDEFL_RLE_PREV_CODE_SIZE();
               d->m_huff_count[2][code_size] = (uint16_t)(d->m_huff_count[2][code_size] + 1);
               packed_code_sizes[num_packed_code_sizes++] = code_size;
             }
-          else if (++rle_repeat_count == 6)            {
+          else if(++rle_repeat_count == 6)            {
             TDEFL_RLE_PREV_CODE_SIZE();
             }
         }
       prev_code_size = code_size;
       }
-    if (rle_repeat_count)    {
+    if(rle_repeat_count) {
       TDEFL_RLE_PREV_CODE_SIZE();
       }
     else    {
@@ -1051,19 +1054,19 @@ static void tdefl_start_dynamic_block(tdefl_compressor *d) {
     TDEFL_PUT_BITS(num_lit_codes - 257, 5);
     TDEFL_PUT_BITS(num_dist_codes - 1, 5);
 
-    for (num_bit_lengths = 18; num_bit_lengths >= 0; num_bit_lengths--)
-      if (d->m_huff_code_sizes[2][s_tdefl_packed_code_size_syms_swizzle[num_bit_lengths]])
+    for(num_bit_lengths = 18; num_bit_lengths >= 0; num_bit_lengths--)
+      if(d->m_huff_code_sizes[2][s_tdefl_packed_code_size_syms_swizzle[num_bit_lengths]])
         break;
     num_bit_lengths = max(4, (num_bit_lengths + 1));
     TDEFL_PUT_BITS(num_bit_lengths - 4, 4);
-    for(i = 0; (int)i < num_bit_lengths; i++)
+    for(i=0; (int)i < num_bit_lengths; i++)
       TDEFL_PUT_BITS(d->m_huff_code_sizes[2][s_tdefl_packed_code_size_syms_swizzle[i]], 3);
 
-    for(packed_code_sizes_index = 0; packed_code_sizes_index < num_packed_code_sizes;)    {
+    for(packed_code_sizes_index = 0; packed_code_sizes_index < num_packed_code_sizes;) {
         unsigned int code = packed_code_sizes[packed_code_sizes_index++];
         /*assert(code < TDEFL_MAX_HUFF_SYMBOLS_2)*/;
         TDEFL_PUT_BITS(d->m_huff_codes[2][code], d->m_huff_code_sizes[2][code]);
-        if (code >= 16)
+        if(code >= 16)
             TDEFL_PUT_BITS(packed_code_sizes[packed_code_sizes_index++], "\02\03\07"[code - 16]);
     }
   }
@@ -1160,7 +1163,7 @@ static int tdefl_flush_block(tdefl_compressor *d, int flush) {
   *d->m_pLZ_flags = (uint8_t)(*d->m_pLZ_flags >> d->m_num_flags_left);
   d->m_pLZ_code_buf -= (d->m_num_flags_left == 8);
 
-  if((d->m_flags & TDEFL_WRITE_ZLIB_HEADER) && (!d->m_block_index))    {
+  if((d->m_flags & TDEFL_WRITE_ZLIB_HEADER) && (!d->m_block_index)) {
     const uint8_t cmf = 0x78;
     uint8_t flg, flevel = 3;
     unsigned int header, i, mz_un = sizeof(s_tdefl_num_probes) / sizeof(unsigned int);
@@ -1200,18 +1203,18 @@ static int tdefl_flush_block(tdefl_compressor *d, int flush) {
       d->m_pOutput_buf = pSaved_output_buf;
       d->m_bit_buffer = saved_bit_buf, d->m_bits_in = saved_bits_in;
       TDEFL_PUT_BITS(0, 2);
-      if (d->m_bits_in)        {
+      if(d->m_bits_in)        {
         TDEFL_PUT_BITS(0, 8 - d->m_bits_in);
         }
-      for (i = 2; i; --i, d->m_total_lz_bytes ^= 0xFFFF) {
+      for(i=2; i; --i, d->m_total_lz_bytes ^= 0xFFFF) {
         TDEFL_PUT_BITS(d->m_total_lz_bytes & 0xFFFF, 16);
         }
-      for (i = 0; i < d->m_total_lz_bytes; ++i) {
+      for(i=0; i < d->m_total_lz_bytes; ++i) {
         TDEFL_PUT_BITS(d->m_dict[(d->m_lz_code_buf_dict_pos + i) & TDEFL_LZ_DICT_SIZE_MASK], 8);
       }
     }
   /* Check for the extremely unlikely (if not impossible) case of the compressed block not fitting into the output buffer when using dynamic codes. */
-  else if (!comp_block_succeeded)    {
+  else if(!comp_block_succeeded) {
     d->m_pOutput_buf = pSaved_output_buf;
     d->m_bit_buffer = saved_bit_buf, d->m_bits_in = saved_bits_in;
     tdefl_compress_block(d, TRUE);
@@ -1284,11 +1287,11 @@ static __attribute__((always_inline)) void tdefl_find_match(tdefl_compressor *d,
   uint8_t c0 = d->m_dict[pos + match_len], c1 = d->m_dict[pos + match_len - 1];
 
   /*assert(max_match_len <= TDEFL_MAX_MATCH_LEN);*/
-  if (max_match_len <= match_len)
+  if(max_match_len <= match_len)
     return;
-  for (;;) {
-    for (;;) {
-      if (--num_probes_left == 0)
+  for(;;) {
+    for(;;) {
+      if(--num_probes_left == 0)
         return;
 #define TDEFL_PROBE                                                                               \
   next_probe_pos = d->m_next[probe_pos];                                                        \
@@ -1301,16 +1304,16 @@ static __attribute__((always_inline)) void tdefl_find_match(tdefl_compressor *d,
     TDEFL_PROBE;
     TDEFL_PROBE;
     }
-  if (!dist)
+  if(!dist)
     break;
-    p = s;
-    q = d->m_dict + probe_pos;
-  for (probe_len = 0; probe_len < max_match_len; probe_len++)
-    if (*p++ != *q++)
+  p = s;
+  q = d->m_dict + probe_pos;
+  for(probe_len = 0; probe_len < max_match_len; probe_len++)
+    if(*p++ != *q++)
       break;
-    if (probe_len > match_len)        {
+    if(probe_len > match_len)        {
       *pMatch_dist = dist;
-      if ((*pMatch_len = match_len = probe_len) == max_match_len)
+      if((*pMatch_len = match_len = probe_len) == max_match_len)
         return;
       c0 = d->m_dict[pos + match_len];
       c1 = d->m_dict[pos + match_len - 1];
@@ -1323,7 +1326,7 @@ static __attribute__((always_inline)) void tdefl_record_literal(tdefl_compressor
   d->m_total_lz_bytes++;
   *d->m_pLZ_code_buf++ = lit;
   *d->m_pLZ_flags = (uint8_t)(*d->m_pLZ_flags >> 1);
-  if(--d->m_num_flags_left == 0)    {
+  if(--d->m_num_flags_left == 0) {
     d->m_num_flags_left = 8;
     d->m_pLZ_flags = d->m_pLZ_code_buf++;
     }
@@ -1345,7 +1348,7 @@ static __attribute__((always_inline)) void tdefl_record_match(tdefl_compressor *
   d->m_pLZ_code_buf += 3;
 
   *d->m_pLZ_flags = (uint8_t)((*d->m_pLZ_flags >> 1) | 0x80);
-  if (--d->m_num_flags_left == 0)    {
+  if (--d->m_num_flags_left == 0) {
     d->m_num_flags_left = 8;
     d->m_pLZ_flags = d->m_pLZ_code_buf++;
     }
@@ -1361,7 +1364,7 @@ static BOOL tdefl_compress_normal(tdefl_compressor *d) {
   size_t src_buf_left = d->m_src_buf_left;
   tdefl_flush flush = d->m_flush;
 
-  while ((src_buf_left) || ((flush) && (d->m_lookahead_size)))    {
+  while ((src_buf_left) || ((flush) && (d->m_lookahead_size))) {
     unsigned int len_to_move, cur_match_dist, cur_match_len, cur_pos;
     /* Update dictionary and hash chains. Keeps the lookahead size equal to TDEFL_MAX_MATCH_LEN. */
     if ((d->m_lookahead_size + d->m_dict_size) >= (TDEFL_MIN_MATCH_LEN - 1))        {
@@ -1482,7 +1485,7 @@ static BOOL tdefl_compress_normal(tdefl_compressor *d) {
 
 static tdefl_status tdefl_flush_output_buffer(tdefl_compressor *d) {
 
-  if (d->m_pIn_buf_size)    {
+  if(d->m_pIn_buf_size) {
     *d->m_pIn_buf_size = d->m_pSrc - (const uint8_t *)d->m_pIn_buf;
     }
 
@@ -1502,9 +1505,9 @@ static tdefl_status tdefl_flush_output_buffer(tdefl_compressor *d) {
 tdefl_status tdefl_compress(tdefl_compressor *d, const void *pIn_buf, size_t *pIn_buf_size, void *pOut_buf, size_t *pOut_buf_size, tdefl_flush flush) {
 
   if(!d) {
-    if (pIn_buf_size)
+    if(pIn_buf_size)
       *pIn_buf_size = 0;
-    if (pOut_buf_size)
+    if(pOut_buf_size)
       *pOut_buf_size = 0;
     return TDEFL_STATUS_BAD_PARAM;
     }
@@ -1521,7 +1524,7 @@ tdefl_status tdefl_compress(tdefl_compressor *d, const void *pIn_buf, size_t *pI
   if (((d->m_pPut_buf_func != NULL) == ((pOut_buf != NULL) || (pOut_buf_size != NULL))) || 
     (d->m_prev_return_status != TDEFL_STATUS_OKAY) ||
     (d->m_wants_to_finish && (flush != TDEFL_FINISH)) || (pIn_buf_size && *pIn_buf_size && !pIn_buf) || 
-    (pOut_buf_size && *pOut_buf_size && !pOut_buf))    {
+    (pOut_buf_size && *pOut_buf_size && !pOut_buf)) {
     if (pIn_buf_size)
       *pIn_buf_size = 0;
     if (pOut_buf_size)
@@ -1530,7 +1533,7 @@ tdefl_status tdefl_compress(tdefl_compressor *d, const void *pIn_buf, size_t *pI
     }
   d->m_wants_to_finish |= (flush == TDEFL_FINISH);
 
-  if ((d->m_output_flush_remaining) || (d->m_finished))
+  if((d->m_output_flush_remaining) || (d->m_finished))
     return (d->m_prev_return_status = tdefl_flush_output_buffer(d));
 
   {
@@ -1541,7 +1544,7 @@ tdefl_status tdefl_compress(tdefl_compressor *d, const void *pIn_buf, size_t *pI
 //  if ((d->m_flags & (TDEFL_WRITE_ZLIB_HEADER | TDEFL_COMPUTE_ADLER32)) && (pIn_buf))
 //    d->m_adler32 = (uint32_t)mz_adler32(d->m_adler32, (const uint8_t *)pIn_buf, d->m_pSrc - (const uint8_t *)pIn_buf);
 
-  if ((flush) && (!d->m_lookahead_size) && (!d->m_src_buf_left) && (!d->m_output_flush_remaining))    {
+  if ((flush) && (!d->m_lookahead_size) && (!d->m_src_buf_left) && (!d->m_output_flush_remaining)) {
     if (tdefl_flush_block(d, flush) < 0)
       return d->m_prev_return_status;
     d->m_finished = (flush == TDEFL_FINISH);
@@ -1589,33 +1592,58 @@ tdefl_status tdefl_init(tdefl_compressor *d, tdefl_put_buf_func_ptr pPut_buf_fun
   d->m_pSrc = NULL;
   d->m_src_buf_left = 0;
   d->m_out_buf_ofs = 0;
-  if (!(flags & TDEFL_NONDETERMINISTIC_PARSING_FLAG))
+  if(!(flags & TDEFL_NONDETERMINISTIC_PARSING_FLAG))
     memset(d->m_dict,0,sizeof(d->m_dict));
   memset(&d->m_huff_count[0][0], 0, sizeof(d->m_huff_count[0][0]) * TDEFL_MAX_HUFF_SYMBOLS_0);
   memset(&d->m_huff_count[1][0], 0, sizeof(d->m_huff_count[1][0]) * TDEFL_MAX_HUFF_SYMBOLS_1);
   return TDEFL_STATUS_OKAY;
   }
 
-int compressGZ(SUPERFILE *f1,const char *s,uint32_t n,uint32_t *len,uint32_t *crc) {
-  uint8_t ch;
+int compressGZ(SUPERFILE *f1,enum FILE_DEVICE d,const char *s,uint32_t n,uint32_t *len,uint32_t *crc) {
   int i=0;
   SUPERFILE f2;
   char *filename;
   tdefl_compressor pComp;
-  uint8_t pRead_buf[MZ_ZIP_MAX_IO_BUF_SIZE];
+  uint8_t pRead_buf[MZ_ZIP_MAX_IO_BUF_SIZE],outbuf[MZ_ZIP_MAX_IO_BUF_SIZE];
   bool result = FALSE;
   uint32_t state;   // VERIFICARE!
   unsigned int level=0;
+  size_t inbytes = 0, outbytes = 0, inpos = 0, outpos = 0, compsz;
 
-  *crc=0;
+  *crc=0xffffffff;
+  *len=0;
 
-  getDrive(s,&f2,&filename);    // usare dest!
-  if(SuperFileOpen(&f2,s,'r',TYPE_BINARY)) {
+  getDrive(s,NULL,&filename);  
+  f2.drive=d;   // preferisco così
+  
+  if(SuperFileOpen(&f2,filename,OPEN_READ,TYPE_BINARY | SHARE_READ)) {
   
     
+#if 1
+    // https://esp32.com/viewtopic.php?t=9166
+    
+    if(tdefl_init(&pComp, NULL, NULL, /*TDEFL_WRITE_ZLIB_HEADER |*/ /*MZ_ZIP_MAX_IO_BUF_SIZE*/ 1500) == TDEFL_STATUS_OKAY) {
+      do {
+        inbytes = SuperFileRead(&f2,/*file_ofs,*/ pRead_buf, MZ_ZIP_MAX_IO_BUF_SIZE);
+        *crc=crc32array(pRead_buf,inbytes,*crc);
+        outbytes=MZ_ZIP_MAX_IO_BUF_SIZE;
+        tdefl_compress(&pComp, pRead_buf, &inbytes, outbuf, &outbytes, TDEFL_FINISH);
+        SuperFileWrite(f1,outbuf,outbytes);
+        n-=inbytes;
+        *len+=outbytes;
+        } while(inbytes==MZ_ZIP_MAX_IO_BUF_SIZE && n>0);
+      }
+    else
+      goto fine;
+
+    
+#endif    
+    
 #if 0
-    if(tdefl_init(&pComp, mz_zip_writer_add_put_buf_callback, &state, 
-      tdefl_create_comp_flags_from_zip_params(level, -15, MZ_DEFAULT_STRATEGY)) != TDEFL_STATUS_OKAY) {
+    
+//    if(tdefl_init(&pComp, mz_zip_writer_add_put_buf_callback, &state, 
+//      tdefl_create_comp_flags_from_zip_params(level, -15, MZ_DEFAULT_STRATEGY)) != TDEFL_STATUS_OKAY) {
+      
 //        pZip->m_pFree(pZip->m_pAlloc_opaque, pComp);
 //        pZip->m_pFree(pZip->m_pAlloc_opaque, pRead_buf);
 //        return mz_zip_set_error(pZip, MZ_ZIP_INTERNAL_ERROR);
@@ -1656,10 +1684,12 @@ int compressGZ(SUPERFILE *f1,const char *s,uint32_t n,uint32_t *len,uint32_t *cr
 fine:
     SuperFileClose(&f2);
     }
-  *len=i;
+
+  *crc=~Reflect32(*crc);
+  i=*len;
   return i;
   }
-int compressBZ(SUPERFILE *f1,const char *s,uint32_t n,uint32_t *len,uint32_t *crc) {
+int compressBZ(SUPERFILE *f1,enum FILE_DEVICE d,const char *s,uint32_t n,uint32_t *len,uint32_t *crc) {
   uint8_t ch;
   int i=0;
   SUPERFILE f2;
@@ -1667,8 +1697,10 @@ int compressBZ(SUPERFILE *f1,const char *s,uint32_t n,uint32_t *len,uint32_t *cr
   
   *crc=0;
   
-  getDrive(s,NULL,&filename);    // usare dest!
-  if(SuperFileOpen(&f2,s,'r',TYPE_BINARY)) {
+  getDrive(s,NULL,&filename);  
+  f2.drive=d;   // preferisco così
+
+  if(SuperFileOpen(&f2,filename,OPEN_READ,TYPE_BINARY | SHARE_READ)) {
 //  FINIRE!
     while(i<n && SuperFileRead(&f2,&ch,1) == 1) {
       if(SuperFileWrite(f1,&ch,1) != 1) {
@@ -1685,6 +1717,7 @@ int compressBZ(SUPERFILE *f1,const char *s,uint32_t n,uint32_t *len,uint32_t *cr
 
 int unzip(const char *source,const char *dest,uint8_t flags) {
   SUPERFILE f,f2;
+  struct ZIP_HEADER header;
   int i,totfiles=0;
   uint32_t myCRC=0;
   char buf[64];
@@ -1700,7 +1733,7 @@ int unzip(const char *source,const char *dest,uint8_t flags) {
   else
     f2.drive=f.drive;
 
-  if(SuperFileOpen(&f,filename,'r',TYPE_BINARY)) {
+  if(SuperFileOpen(&f,filename,OPEN_READ,TYPE_BINARY | SHARE_READ)) {
     for(;;) {
       if(SuperFileRead(&f,&header,sizeof(header)) == sizeof(header)) {
         if(header.signature == 0x04034b50) {
@@ -1718,7 +1751,18 @@ int unzip(const char *source,const char *dest,uint8_t flags) {
             printf(" File %s\r\n",strupr(buf));    //8.3 :)
 #endif
           SuperFileSeek(&f,i+header.filename_len,SEEK_SET);
+          
           // extrafield qua...
+          if(header.extrafield_len) {
+            DWORD_VAL x;
+            // stampare commento mio :) o cmq, v.
+            SuperFileRead(&f,&x,4);
+            switch(x.w[0]) {
+              case 0x6375:    // infozip
+                break;
+              }
+            }
+          
           SuperFileSeek(&f,i+header.filename_len+header.extrafield_len,SEEK_SET);
           i=SuperFileTell(&f);
 //#warning POSIZIONARE DOPO nome file!
@@ -1726,6 +1770,7 @@ int unzip(const char *source,const char *dest,uint8_t flags) {
 
           if(dest)
             ;
+          
           
           if(flags & 2) {   // solo list
             SuperFileSeek(&f,i+header.compressedSize,SEEK_SET);
@@ -1751,7 +1796,7 @@ int unzip(const char *source,const char *dest,uint8_t flags) {
                   }
                 }
               }
-            if(SuperFileOpen(&f2,p,'w',TYPE_BINARY)) {
+            if(SuperFileOpen(&f2,p,OPEN_WRITE,TYPE_BINARY | SHARE_READ)) {
               FILETIMEPACKED ft;
               uint32_t len;
 
@@ -1790,22 +1835,58 @@ int unzip(const char *source,const char *dest,uint8_t flags) {
                 printf(" CRC error: %08X != %08X\r\n",myCRC,header.crc32);
               }
             }
-          totfiles++;
+          }
+        else if(header.signature == 0x02014b50) {   // central dir
+          struct ZIP_CENTRAL_DIRECTORY_HEADER cd_header;
+          SuperFileSeek(&f,-sizeof(header.signature),SEEK_CUR);
+          if(SuperFileRead(&f,&cd_header,sizeof(cd_header)) == sizeof(cd_header)) {
+            }
+          }
+        else if(header.signature == 0x06054b50) {   // central dir end
+          struct ZIP_CENTRAL_DIRECTORY_END cd_end;
+          SuperFileSeek(&f,-sizeof(header.signature),SEEK_CUR);
+          if(SuperFileRead(&f,&cd_end,sizeof(cd_end)) == sizeof(cd_end)) {
+            if(cd_end.comment_len) {
+              char buf[64];
+              i=SuperFileTell(&f);
+              if(SuperFileRead(&f,buf,min(cd_end.comment_len,63)) == min(cd_end.comment_len,63)) {
+                buf[cd_end.comment_len]=0;
+                puts(buf);
+                }
+              SuperFileSeek(&f,i+cd_end.comment_len,SEEK_SET);
+              }
+            if(cd_end.total_entries != (totfiles)) {
+              err_puts("File count mismatch");
+              }
+            }
+          
+          break;
           }
         else {
           if(!totfiles) {
-            err_puts("Invalid ZIP file");
+            err_puts("Invalid/corrupt ZIP file");
             }
           break;
           }
 skippa_unzip:
-        ;
+        totfiles++;
+        while(isCtrlS()); 
+        if(hitCtrlC(1))
+          break;
         }
       else
         break;
-      
-
       }
+
+/*			occhio alla fine c'è un blocco vuoto "PK" 
+	50 4B 05 06 00 00 00 00 05 00 05 00 20 01 00 00 64 13 00 00 00 00 
+	credo si autoignori, ma cmq controllare e dare errore
+
+    50 4B 01 02 14 00 14 00 00 00 08 00 92 43 F1 1C FB 05 C5 E1 5A 03 00 00 7F 06 00 00 
+0C 00 00 00 00 00 00 00 01 00 20 00 00 00 00 00 00 00 56 47 41 53 43 41 52 54 2E 54 58 54 
+50 4B 05 06 00 00 00 00 01 00 01 00 3A 00 00 00 84 03 00 00 00 00 */
+
+
     SuperFileClose(&f);
     }
   else {
@@ -1817,15 +1898,19 @@ skippa_unzip:
 
 int zip(const char *dest,const char *sources,uint8_t flags) {
   SUPERFILE f,f2;
+  struct ZIP_HEADER header;
+  struct ZIP_CENTRAL_DIRECTORY_HEADER cd_header;
+  struct ZIP_CENTRAL_DIRECTORY_END cd_end;
   int i,totfiles=0;
+  uint8_t file_type;
   char buf[64],*filename,*filename2;
   uint32_t myCRC;
   SearchRec rec;
   enum FILE_DEVICE mydrive;
   uint32_t len;
   
-  mydrive=getDrive(dest,&f,&filename);
-  getDrive(sources,&f2,&filename2);
+  getDrive(dest,&f,&filename);
+  mydrive=getDrive(sources,&f2,&filename2);
   if(flags & 1)
     printf("Creating ZIP: %c:%s\r\n",f.drive,filename);
   
@@ -1854,9 +1939,14 @@ rifo_zip:
         header.mod_time=LOWORD(i);
         header.uncompressedSize=SuperFileSize(&f2,rec.filename);
 
-        header.compressedSize=i;
+        header.compressedSize=0;
         header.filename_len=FILE_NAME_SIZE_8P3+1;
-        header.extrafield_len=0;
+        header.extrafield_len=sizeof(comment);
+        
+        // inserire commento "G.DAR" con header + 2+ len ; 
+        //header. =0x6375
+        //https://libzip.org/specifications/extrafld.txt https://www.artpol-software.com/ZipArchive/KB/0610242300.aspx
+        
         header.flags=0;
         if(flags & 1)
 #if defined(SUPPORT_LFN)
@@ -1864,35 +1954,78 @@ rifo_zip:
 #else
           printf(" compressing file %s\r\n",strupr(rec.filename));
 #endif
-        if(SuperFileOpen(&f,filename,!totfiles ? 'w' : 'a',TYPE_BINARY)) {
+        if(SuperFileOpen(&f,filename,!totfiles ? OPEN_WRITE : OPEN_APPEND,TYPE_BINARY | SHARE_READ)) {
           if(totfiles)
             SuperFileSeek(&f,0,SEEK_END);
           SuperFileWrite(&f,&header,sizeof(header));
           memset(buf,0,sizeof(buf));
           strcpy(buf,rec.filename);
           SuperFileWrite(&f,buf,FILE_NAME_SIZE_8P3+1);
+/*no, metterlo in Central directory
+          {
+          comment.id=0x6375;
+          comment.len=sizeof(comment) -2*sizeof(uint16_t);
+          comment.ver=1;
+          strcpy(comment.text,"GG..DDAARR");    // unicode!!
+          comment.crc=crc32array(comment.text,6*2,0xffffffff);
+          SuperFileWrite(&f,&comment,sizeof(comment));
+          }*/
 
           if(rec.filesize<=257)     // direi sensato e pare facciano così
             header.compression=0;
           else
             header.compression=8;
-
+          
+file_type=0;
           switch(header.compression) {
             case 0:
-              i=compress(&f,rec.filename,header.compressedSize,&len,&myCRC);   // manca path/drive dei file origine...
+              i=compress(&f,mydrive,rec.filename,header.compressedSize,&len,&myCRC);   // manca path/drive dei file origine...
               break;
             case 8:
-              i=compressGZ(&f,rec.filename,header.compressedSize,&len,&myCRC);   // manca path/drive dei file origine...
+              i=compressGZ(&f,mydrive,rec.filename,header.compressedSize,&len,&myCRC);   // manca path/drive dei file origine...
               break;
             case 12:
-              i=compressBZ(&f,rec.filename,header.compressedSize,&len,&myCRC);   // manca path/drive dei file origine...
+              i=compressBZ(&f,mydrive,rec.filename,header.compressedSize,&len,&myCRC);   // manca path/drive dei file origine...
               break;
             }
           if(i <= 0)
             err_puts("error writing to file");
 
           header.compressedSize=len;
+          if(flags & 1)
+            printf(" done (%u%%)\r\n",(header.compressedSize*100L)/header.uncompressedSize);
           header.crc32=myCRC;
+
+/*          al fondo mettere!
+50 4B 05 06  00 00  00 00  05 00  05 00  20 01 00 00  64 13 00 00  00 00 
+
+Central Directory Header:
+50 4B 01 02  14 00  14 00  00 00  08 00  92 43  F1 1C  FB 05 C5 E1  5A 03 00 00  7F 06 00 00 
+0C 00  00 00  00 00  00 00  01 00  20 00 00 00  00 00 00 00  56 47 41 53 43 41 52 54 2E 54 58 54 
+
+Central Directory End:
+50 4B 05 06  00 00  00 00  01 00  01 00  3A 00 00 00  84 03 00 00  00 00 */
+          
+          cd_header.signature=0x02014b50;
+          cd_header.version= MAKEWORD(20,0 /*MS-DOS*/);
+          cd_header.version_needed=20;
+          cd_header.flags=0x0000;
+          cd_header.compression=header.compression;
+          cd_header.mod_time=header.mod_time;
+          cd_header.mod_date=header.mod_date;
+          cd_header.crc32=header.crc32;
+          cd_header.compressedSize=header.compressedSize;
+          cd_header.uncompressedSize=header.uncompressedSize;
+          cd_header.filename_len=header.filename_len;
+          cd_header.extrafield_len=header.extrafield_len;
+          cd_header.file_comment_len=0;
+          cd_header.disk_number_start=0;
+          cd_header.int_attr=file_type;   // stabilire se Text o altro o amen :)
+          cd_header.ext_attr=rec.attributes;
+          cd_header.header_offset=    0;
+          SuperFileWrite(&f,&cd_header,sizeof(cd_header));
+          SuperFileWrite(&f,buf,FILE_NAME_SIZE_8P3+1);
+
           SuperFileSeek(&f,0,SEEK_SET);
           SuperFileWrite(&f,&header,sizeof(header));
           
@@ -1903,6 +2036,21 @@ rifo_zip:
           err_puts("error opening file");
         } while(!SuperFileFindNext(mydrive,&rec));
 // fare strtok filename in input e rifare, cercando spazi o '+'      goto rifo_zip;
+        
+      if(SuperFileOpen(&f,filename,OPEN_APPEND,TYPE_BINARY | SHARE_READ)) {
+        SuperFileSeek(&f,0,SEEK_END);
+        cd_end.signature=0x06054b50;
+        cd_end.disk_number=0;
+        cd_end.disk_number_cd=0;
+        cd_end.disk_cd_entries=totfiles;
+        cd_end.total_entries=totfiles;
+        cd_end.cd_size=     0;
+        cd_end.cd_offset_disk=      0;
+        cd_end.comment_len=5;
+        SuperFileWrite(&f,&cd_end,sizeof(cd_end));
+        SuperFileWrite(&f,"G.DAR",5);
+        SuperFileClose(&f);
+        }
       }
     }
 fine_zip:    
@@ -3713,7 +3861,7 @@ int decompressGZtest() {
   int startingbytes=0,outsize=0;
 
 
-  header.crc32=0xB5E5321B  ; //0x934272ad;  //0x4c8ba08d;//  0x8D, 0xA0, 0x8B, 0x4C
+//  header.crc32=0xB5E5321B  ; //0x934272ad;  //0x4c8ba08d;//  0x8D, 0xA0, 0x8B, 0x4C
   
   tinfl_init(&decomp);
   out_buf_ofs=0;
