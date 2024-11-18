@@ -52,7 +52,7 @@ struct __attribute__((__packed__)) ZIP_CENTRAL_DIRECTORY_HEADER {
   uint16_t file_comment_len;
   uint16_t disk_number_start;
   uint16_t int_attr;
-  uint16_t ext_attr;
+  uint32_t ext_attr;
   uint32_t header_offset;
   // filename (variable
   // extra field (variable
@@ -65,9 +65,9 @@ struct __attribute__((__packed__)) ZIP_CENTRAL_DIRECTORY_END {
   uint16_t disk_number_cd;
   uint16_t disk_cd_entries;
   uint16_t total_entries;
-  uint16_t cd_size;
+  uint32_t cd_size;
   uint32_t cd_offset_disk;
-  uint32_t comment_len;
+  uint16_t comment_len;
   // comment (variable
   };
 

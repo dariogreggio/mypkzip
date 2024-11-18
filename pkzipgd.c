@@ -697,19 +697,23 @@ int decompress6(SUPERFILE *f1,SUPERFILE *f2,uint32_t n,uint32_t *len,uint32_t *c
   return i;
   }
 
-int compress(SUPERFILE *f1,enum FILE_DEVICE d,const char *s,uint32_t n,uint32_t *len,uint32_t *crc) {
+int compress(SUPERFILE *f1,enum FILE_DEVICE d,const char *s,uint32_t n,uint32_t *len,
+  uint32_t *crc,uint8_t *filetype) {
   uint8_t ch;
   int i=0;
   SUPERFILE f2;
   char *filename;
   
   *crc=0xffffffff;
+  *filetype=1; // presumo ASCII...
 
   getDrive(s,NULL,&filename);  
   f2.drive=d;   // preferisco così
   
   if(SuperFileOpen(&f2,filename,OPEN_READ,TYPE_BINARY | SHARE_READ)) {
     while(i<n && SuperFileRead(&f2,&ch,1) == 1) {
+      if(!isalnum(ch))
+        *filetype=0;
       if(SuperFileWrite(f1,&ch,1) != 1) {
         break;
         }
@@ -1599,7 +1603,8 @@ tdefl_status tdefl_init(tdefl_compressor *d, tdefl_put_buf_func_ptr pPut_buf_fun
   return TDEFL_STATUS_OKAY;
   }
 
-int compressGZ(SUPERFILE *f1,enum FILE_DEVICE d,const char *s,uint32_t n,uint32_t *len,uint32_t *crc) {
+int compressGZ(SUPERFILE *f1,enum FILE_DEVICE d,const char *s,uint32_t n,uint32_t *len,
+  uint32_t *crc,uint8_t *filetype) {
   int i=0;
   SUPERFILE f2;
   char *filename;
@@ -1689,7 +1694,8 @@ fine:
   i=*len;
   return i;
   }
-int compressBZ(SUPERFILE *f1,enum FILE_DEVICE d,const char *s,uint32_t n,uint32_t *len,uint32_t *crc) {
+int compressBZ(SUPERFILE *f1,enum FILE_DEVICE d,const char *s,uint32_t n,uint32_t *len,
+  uint32_t *crc,uint8_t *filetype) {
   uint8_t ch;
   int i=0;
   SUPERFILE f2;
@@ -1735,141 +1741,153 @@ int unzip(const char *source,const char *dest,uint8_t flags) {
 
   if(SuperFileOpen(&f,filename,OPEN_READ,TYPE_BINARY | SHARE_READ)) {
     for(;;) {
-      if(SuperFileRead(&f,&header,sizeof(header)) == sizeof(header)) {
-        if(header.signature == 0x04034b50) {
-          if(flags & 1)
-            printf("Version: %04x; compressed size: %u (%u); mode: %u; CRC: %08X; (flags %04X)\r\n",
-              header.version,header.compressedSize,header.uncompressedSize,
-              header.compression,header.crc32,header.flags);
-          i=SuperFileTell(&f);
-          SuperFileRead(&f,&buf,min(header.filename_len,63));   // ev. dir...
-          buf[min(header.filename_len,63)]=0;
-          if(flags & 1)
-#if defined(SUPPORT_LFN)
-            printf(" File %s\r\n",buf);
-#else
-            printf(" File %s\r\n",strupr(buf));    //8.3 :)
-#endif
-          SuperFileSeek(&f,i+header.filename_len,SEEK_SET);
-          
-          // extrafield qua...
-          if(header.extrafield_len) {
-            DWORD_VAL x;
-            // stampare commento mio :) o cmq, v.
-            SuperFileRead(&f,&x,4);
-            switch(x.w[0]) {
-              case 0x6375:    // infozip
-                break;
-              }
-            }
-          
-          SuperFileSeek(&f,i+header.filename_len+header.extrafield_len,SEEK_SET);
-          i=SuperFileTell(&f);
-//#warning POSIZIONARE DOPO nome file!
-          
+      if(SuperFileRead(&f,&header,sizeof(header.signature)) == sizeof(header.signature)) {
+        SuperFileSeek(&f,-sizeof(header.signature),SEEK_CUR);
+        switch(header.signature) {
+          case 0x04034b50:
+            if(SuperFileRead(&f,&header,sizeof(header)) == sizeof(header)) {
+              if(flags & 1)
+                printf("Version: %04x; compressed size: %u (%u); mode: %u; CRC: %08X; (flags %04X)\r\n",
+                  header.version,header.compressedSize,header.uncompressedSize,
+                  header.compression,header.crc32,header.flags);
+              i=SuperFileTell(&f);
+              SuperFileRead(&f,&buf,min(header.filename_len,63));   // ev. dir...
+              buf[min(header.filename_len,63)]=0;
+              if(flags & 1)
+    #if defined(SUPPORT_LFN)
+                printf(" File %s\r\n",buf);
+    #else
+                printf(" File %s\r\n",strupr(buf));    //8.3 :)
+    #endif
+              SuperFileSeek(&f,i+header.filename_len,SEEK_SET);
 
-          if(dest)
-            ;
-          
-          
-          if(flags & 2) {   // solo list
-            SuperFileSeek(&f,i+header.compressedSize,SEEK_SET);
-            }
-          else {
-            char *p;
-            if(flags & 1)
-              printf("  decompressing...\r\n",buf);
-            p=strrchr(buf,'/');       // saltare / in buf per ora! poi creare dir a catena
-            if(!p)
-              p=buf; 
-            else 
-              p++;
-//            getDrive(buf,NULL,&filename);    // usare dest! completa
-            if(SuperFileExists(&f2,p)) {
-              if(flags & 1) {
-                int j;
-                j=waitYesNo("File exists: overwrite (Y/N)? ",1);
-                putchar('\n');
-                if(j != 1) {
-                  SuperFileSeek(&f,i+header.compressedSize,SEEK_SET);
-                  goto skippa_unzip;
+              // extrafield qua...
+              if(header.extrafield_len) {
+                DWORD_VAL x;
+                // stampare commento mio :) o cmq, v.
+                SuperFileRead(&f,&x,4);
+                switch(x.w[0]) {
+                  case 0x6375:    // infozip
+                    break;
+                  }
+                }
+
+              SuperFileSeek(&f,i+header.filename_len+header.extrafield_len,SEEK_SET);
+              i=SuperFileTell(&f);
+    //#warning POSIZIONARE DOPO nome file!
+
+
+              if(dest)
+                ;
+
+        totfiles++;
+
+              if(flags & 2) {   // solo list
+                SuperFileSeek(&f,i+header.compressedSize,SEEK_SET);
+                }
+              else {
+                char *p;
+                if(flags & 1)
+                  printf("  decompressing...\r\n",buf);
+                p=strrchr(buf,'/');       // saltare / in buf per ora! poi creare dir a catena
+                if(!p)
+                  p=buf; 
+                else 
+                  p++;
+    //            getDrive(buf,NULL,&filename);    // usare dest! completa
+                if(SuperFileExists(&f2,p)) {
+                  if(flags & 1) {
+                    int j;
+                    j=waitYesNo("File exists: overwrite (Y/N)? ",1);
+                    putchar('\n');
+                    if(j != 1) {
+                      SuperFileSeek(&f,i+header.compressedSize,SEEK_SET);
+                      goto skippa_unzip;
+                      }
+                    }
+                  }
+                if(SuperFileOpen(&f2,p,OPEN_WRITE,TYPE_BINARY | SHARE_READ)) {
+                  FILETIMEPACKED ft;
+                  uint32_t len;
+
+                  switch(header.compression) {
+                    case 0:
+                      decompress(&f,&f2,header.compressedSize,&len,&myCRC);
+                      break;
+                    case 6:
+                      decompress6(&f,&f2,header.compressedSize,&len,&myCRC); // non è sicuro 
+                      break;
+                    case 8:
+                      decompressGZ(&f,&f2,header.compressedSize,&len,&myCRC);
+                      break;
+                    case 12:
+                      decompressBZ(&f,&f2,header.compressedSize,&len,&myCRC);
+                      break;
+                    default:
+                      err_puts("unsupported");
+                      SuperFileSeek(&f,header.compressedSize,SEEK_CUR);   // vado al prossimo header/file
+                      break;
+                    }
+                  SuperFileClose(&f2);
+
+                  ft.date=header.mod_date;
+                  ft.time=header.mod_time;
+                  SuperFileSetTime(&f2,p,ft.v);
+                  if(flags & 1)
+                    printf("   written %u(%u) bytes\r\n",len,header.uncompressedSize);
+                  }
+                else {
+                  err_puts("Error writing file!");
+                  SuperFileSeek(&f,header.compressedSize,SEEK_CUR);   // vado al prossimo header/file
+                  }
+                if(header.crc32 != myCRC) {
+                  if(flags & 1)
+                    printf(" CRC error: %08X != %08X\r\n",myCRC,header.crc32);
                   }
                 }
               }
-            if(SuperFileOpen(&f2,p,OPEN_WRITE,TYPE_BINARY | SHARE_READ)) {
-              FILETIMEPACKED ft;
-              uint32_t len;
+            else 
+              goto fine;
+            break;
+          case 0x02014b50:   // central dir
+            {struct ZIP_CENTRAL_DIRECTORY_HEADER cd_header;
+            if(SuperFileRead(&f,&cd_header,sizeof(cd_header)) == sizeof(cd_header)) {
+              SuperFileRead(&f,&buf,cd_header.filename_len);
+//              SuperFileRead(&f,&buf,cd_header.file_comment_len);    // occhio! o skippare e basta
+              SuperFileSeek(&f,cd_header.file_comment_len,SEEK_CUR);
 
-              switch(header.compression) {
-                case 0:
-                  decompress(&f,&f2,header.compressedSize,&len,&myCRC);
-                  break;
-                case 6:
-                  decompress6(&f,&f2,header.compressedSize,&len,&myCRC); // non è sicuro 
-                  break;
-                case 8:
-                  decompressGZ(&f,&f2,header.compressedSize,&len,&myCRC);
-                  break;
-                case 12:
-                  decompressBZ(&f,&f2,header.compressedSize,&len,&myCRC);
-                  break;
-                default:
-                  err_puts("unsupported");
-                  SuperFileSeek(&f,header.compressedSize,SEEK_CUR);   // vado al prossimo header/file
-                  break;
+// si potrebbero contare pure queste, o solo queste, per veriricare tot files (e mismatch)..              
+              }
+            }
+            break;
+          case 0x06054b50:    // central dir end
+            {struct ZIP_CENTRAL_DIRECTORY_END cd_end;
+            if(SuperFileRead(&f,&cd_end,sizeof(cd_end)) == sizeof(cd_end)) {
+              if(cd_end.comment_len) {
+                char buf[64];
+                i=SuperFileTell(&f);
+                if(SuperFileRead(&f,buf,min(cd_end.comment_len,63)) == min(cd_end.comment_len,63)) {
+                  buf[cd_end.comment_len]=0;
+                  puts(buf);
+                  }
+                SuperFileSeek(&f,i+cd_end.comment_len,SEEK_SET);
                 }
-              SuperFileClose(&f2);
-
-              ft.date=header.mod_date;
-              ft.time=header.mod_time;
-              SuperFileSetTime(&f2,p,ft.v);
-              if(flags & 1)
-                printf("   written %u(%u) bytes\r\n",len,header.uncompressedSize);
-              }
-            else {
-              err_puts("Error writing file!");
-              SuperFileSeek(&f,header.compressedSize,SEEK_CUR);   // vado al prossimo header/file
-              }
-            if(header.crc32 != myCRC) {
-              if(flags & 1)
-                printf(" CRC error: %08X != %08X\r\n",myCRC,header.crc32);
-              }
-            }
-          }
-        else if(header.signature == 0x02014b50) {   // central dir
-          struct ZIP_CENTRAL_DIRECTORY_HEADER cd_header;
-          SuperFileSeek(&f,-sizeof(header.signature),SEEK_CUR);
-          if(SuperFileRead(&f,&cd_header,sizeof(cd_header)) == sizeof(cd_header)) {
-            }
-          }
-        else if(header.signature == 0x06054b50) {   // central dir end
-          struct ZIP_CENTRAL_DIRECTORY_END cd_end;
-          SuperFileSeek(&f,-sizeof(header.signature),SEEK_CUR);
-          if(SuperFileRead(&f,&cd_end,sizeof(cd_end)) == sizeof(cd_end)) {
-            if(cd_end.comment_len) {
-              char buf[64];
-              i=SuperFileTell(&f);
-              if(SuperFileRead(&f,buf,min(cd_end.comment_len,63)) == min(cd_end.comment_len,63)) {
-                buf[cd_end.comment_len]=0;
-                puts(buf);
+              if(cd_end.total_entries != (totfiles)) {
+                err_puts("File count mismatch");
                 }
-              SuperFileSeek(&f,i+cd_end.comment_len,SEEK_SET);
               }
-            if(cd_end.total_entries != (totfiles)) {
-              err_puts("File count mismatch");
+            goto fine;
+            }
+            break;
+          default:
+            if(!totfiles) {
+              err_puts("Invalid/corrupt ZIP file");
               }
-            }
-          
-          break;
+            goto fine;
+            break;
           }
-        else {
-          if(!totfiles) {
-            err_puts("Invalid/corrupt ZIP file");
-            }
-          break;
-          }
+        
 skippa_unzip:
-        totfiles++;
         while(isCtrlS()); 
         if(hitCtrlC(1))
           break;
@@ -1878,15 +1896,7 @@ skippa_unzip:
         break;
       }
 
-/*			occhio alla fine c'è un blocco vuoto "PK" 
-	50 4B 05 06 00 00 00 00 05 00 05 00 20 01 00 00 64 13 00 00 00 00 
-	credo si autoignori, ma cmq controllare e dare errore
-
-    50 4B 01 02 14 00 14 00 00 00 08 00 92 43 F1 1C FB 05 C5 E1 5A 03 00 00 7F 06 00 00 
-0C 00 00 00 00 00 00 00 01 00 20 00 00 00 00 00 00 00 56 47 41 53 43 41 52 54 2E 54 58 54 
-50 4B 05 06 00 00 00 00 01 00 01 00 3A 00 00 00 84 03 00 00 00 00 */
-
-
+fine:
     SuperFileClose(&f);
     }
   else {
@@ -1896,6 +1906,7 @@ skippa_unzip:
   return totfiles;
   }
 
+#define MAX_ZIP_FILES 20    // occhio sforare ecc
 int zip(const char *dest,const char *sources,uint8_t flags) {
   SUPERFILE f,f2;
   struct ZIP_HEADER header;
@@ -1903,11 +1914,12 @@ int zip(const char *dest,const char *sources,uint8_t flags) {
   struct ZIP_CENTRAL_DIRECTORY_END cd_end;
   int i,totfiles=0;
   uint8_t file_type;
-  char buf[64],*filename,*filename2;
+  char buf[TOTAL_FILE_SIZE_PATH],*filename,*filename2;
   uint32_t myCRC;
   SearchRec rec;
   enum FILE_DEVICE mydrive;
   uint32_t len;
+  DWORD filestart[MAX_ZIP_FILES];
   
   getDrive(dest,&f,&filename);
   mydrive=getDrive(sources,&f2,&filename2);
@@ -1923,6 +1935,7 @@ int zip(const char *dest,const char *sources,uint8_t flags) {
           goto fine_zip;
         }
       }
+    
 rifo_zip:
     if(!SuperFileFindFirst(mydrive,filename2,ATTR_MASK ^ ATTR_VOLUME,&rec)) {
       do {
@@ -1930,6 +1943,11 @@ rifo_zip:
           // gestire, con flag
           continue;
           }
+        if(!strcmp(rec.filename,filename))
+// OCCHIO se stai creando uno ZIP con un nome che matcha la findfirst, te lo include!! evitare...
+          // servire SHARE
+          continue;
+        
         memset(&header,0,sizeof(struct ZIP_HEADER));
         header.signature=0x04034b50;
         header.version=0x0014;
@@ -1940,8 +1958,8 @@ rifo_zip:
         header.uncompressedSize=SuperFileSize(&f2,rec.filename);
 
         header.compressedSize=0;
-        header.filename_len=FILE_NAME_SIZE_8P3+1;
-        header.extrafield_len=sizeof(comment);
+        header.filename_len=0;
+        header.extrafield_len=0 /*sizeof(comment)*/;
         
         // inserire commento "G.DAR" con header + 2+ len ; 
         //header. =0x6375
@@ -1954,13 +1972,15 @@ rifo_zip:
 #else
           printf(" compressing file %s\r\n",strupr(rec.filename));
 #endif
-        if(SuperFileOpen(&f,filename,!totfiles ? OPEN_WRITE : OPEN_APPEND,TYPE_BINARY | SHARE_READ)) {
+        if(SuperFileOpen(&f,filename,!totfiles ? OPEN_WRITE : OPEN_APPEND,TYPE_BINARY /*| SHARE_READ*/)) {
           if(totfiles)
             SuperFileSeek(&f,0,SEEK_END);
-          SuperFileWrite(&f,&header,sizeof(header));
+          filestart[totfiles]=SuperFileTell(&f);
           memset(buf,0,sizeof(buf));
-          strcpy(buf,rec.filename);
-          SuperFileWrite(&f,buf,FILE_NAME_SIZE_8P3+1);
+          strcpy(buf,rec.filename);   // per prevedere path ecc, poi...
+          header.filename_len=strlen(buf);
+          SuperFileWrite(&f,&header,sizeof(header));
+          SuperFileWrite(&f,buf,header.filename_len);
 /*no, metterlo in Central directory
           {
           comment.id=0x6375;
@@ -1979,13 +1999,13 @@ rifo_zip:
 file_type=0;
           switch(header.compression) {
             case 0:
-              i=compress(&f,mydrive,rec.filename,header.compressedSize,&len,&myCRC);   // manca path/drive dei file origine...
+              i=compress(&f,mydrive,rec.filename,header.uncompressedSize,&len,&myCRC,&file_type);   // manca path/drive dei file origine...
               break;
             case 8:
-              i=compressGZ(&f,mydrive,rec.filename,header.compressedSize,&len,&myCRC);   // manca path/drive dei file origine...
+              i=compressGZ(&f,mydrive,rec.filename,header.uncompressedSize,&len,&myCRC,&file_type);   // manca path/drive dei file origine...
               break;
             case 12:
-              i=compressBZ(&f,mydrive,rec.filename,header.compressedSize,&len,&myCRC);   // manca path/drive dei file origine...
+              i=compressBZ(&f,mydrive,rec.filename,header.uncompressedSize,&len,&myCRC,&file_type);   // manca path/drive dei file origine...
               break;
             }
           if(i <= 0)
@@ -1993,9 +2013,25 @@ file_type=0;
 
           header.compressedSize=len;
           if(flags & 1)
-            printf(" done (%u%%)\r\n",(header.compressedSize*100L)/header.uncompressedSize);
+            printf(" done (%u%%)\r\n",100-((header.compressedSize*100L)/header.uncompressedSize));
           header.crc32=myCRC;
 
+          SuperFileSeek(&f,filestart[totfiles],SEEK_SET);
+          SuperFileWrite(&f,&header,sizeof(header));
+          
+          SuperFileClose(&f);
+          totfiles++;
+          if(totfiles>=MAX_ZIP_FILES)
+            break;
+          }
+        else
+          err_puts("error opening file");
+        } while(!SuperFileFindNext(mydrive,&rec));
+// fare strtok filename in input e rifare, cercando spazi o '+'      goto rifo_zip;
+        
+      if(SuperFileOpen(&f,filename,OPEN_APPENDPLUS /*=OPEN_READWRITE*/,TYPE_BINARY | SHARE_READ)) {
+        SuperFileSeek(&f,0,SEEK_END);
+        len=SuperFileTell(&f);    // salvo qua pos dir centrale
 /*          al fondo mettere!
 50 4B 05 06  00 00  00 00  05 00  05 00  20 01 00 00  64 13 00 00  00 00 
 
@@ -2006,8 +2042,14 @@ Central Directory Header:
 Central Directory End:
 50 4B 05 06  00 00  00 00  01 00  01 00  3A 00 00 00  84 03 00 00  00 00 */
           
+        for(i=0; i<totfiles; i++) {
+          SuperFileSeek(&f,filestart[i],SEEK_SET);
+          SuperFileRead(&f,&header,sizeof(header));
+          SuperFileRead(&f,&buf,header.filename_len);
+          if(header.extrafield_len)
+            SuperFileRead(&f,&buf,header.extrafield_len);
           cd_header.signature=0x02014b50;
-          cd_header.version= MAKEWORD(20,0 /*MS-DOS*/);
+          cd_header.version= MAKEWORD(20,0 /*MS-DOS   mettere mio! 17, o 0x22 */);
           cd_header.version_needed=20;
           cd_header.flags=0x0000;
           cd_header.compression=header.compression;
@@ -2022,33 +2064,23 @@ Central Directory End:
           cd_header.disk_number_start=0;
           cd_header.int_attr=file_type;   // stabilire se Text o altro o amen :)
           cd_header.ext_attr=rec.attributes;
-          cd_header.header_offset=    0;
+          cd_header.header_offset=filestart[i];
+          SuperFileSeek(&f,0,SEEK_END);
           SuperFileWrite(&f,&cd_header,sizeof(cd_header));
-          SuperFileWrite(&f,buf,FILE_NAME_SIZE_8P3+1);
-
-          SuperFileSeek(&f,0,SEEK_SET);
-          SuperFileWrite(&f,&header,sizeof(header));
-          
-          SuperFileClose(&f);
-          totfiles++;
+          SuperFileWrite(&f,buf,header.filename_len);
+          // ev. copiare anche gli extra field, se ci fossero
           }
-        else
-          err_puts("error opening file");
-        } while(!SuperFileFindNext(mydrive,&rec));
-// fare strtok filename in input e rifare, cercando spazi o '+'      goto rifo_zip;
-        
-      if(SuperFileOpen(&f,filename,OPEN_APPEND,TYPE_BINARY | SHARE_READ)) {
-        SuperFileSeek(&f,0,SEEK_END);
+
         cd_end.signature=0x06054b50;
         cd_end.disk_number=0;
         cd_end.disk_number_cd=0;
         cd_end.disk_cd_entries=totfiles;
         cd_end.total_entries=totfiles;
-        cd_end.cd_size=     0;
-        cd_end.cd_offset_disk=      0;
-        cd_end.comment_len=5;
+        cd_end.cd_size=     SuperFileTell(&f)-len;
+        cd_end.cd_offset_disk=len;
+        cd_end.comment_len=23;
         SuperFileWrite(&f,&cd_end,sizeof(cd_end));
-        SuperFileWrite(&f,"G.DAR",5);
+        SuperFileWrite(&f,"G.DAR's PC_PIC made it!",23);
         SuperFileClose(&f);
         }
       }
