@@ -1720,7 +1720,7 @@ int compressBZ(SUPERFILE *f1,enum FILE_DEVICE d,const char *s,uint32_t n,uint32_
   *len=i;
   return i;
   }
-
+#warning gestire err_puts se in windows!
 int unzip(const char *source,const char *dest,uint8_t flags) {
   SUPERFILE f,f2;
   struct ZIP_HEADER header;
@@ -1868,6 +1868,7 @@ int unzip(const char *source,const char *dest,uint8_t flags) {
                 i=SuperFileTell(&f);
                 if(SuperFileRead(&f,buf,min(cd_end.comment_len,63)) == min(cd_end.comment_len,63)) {
                   buf[cd_end.comment_len]=0;
+// :)                  if(flags & 1)
                   puts(buf);
                   }
                 SuperFileSeek(&f,i+cd_end.comment_len,SEEK_SET);
@@ -1880,6 +1881,7 @@ int unzip(const char *source,const char *dest,uint8_t flags) {
             }
             break;
           default:
+            err_printf("Bad header at %x\n",SuperFileTell(&f));
             if(!totfiles) {
               err_puts("Invalid/corrupt ZIP file");
               }
@@ -1943,7 +1945,7 @@ rifo_zip:
           // gestire, con flag
           continue;
           }
-        if(!strcmp(rec.filename,filename))
+        if(!stricmp(rec.filename,filename))
 // OCCHIO se stai creando uno ZIP con un nome che matcha la findfirst, te lo include!! evitare...
           // servire SHARE
           continue;
@@ -1970,7 +1972,7 @@ rifo_zip:
 #if defined(SUPPORT_LFN)
           printf(" compressing file %s\r\n",rec.filename);    // STRUPR perché 8.3 :)
 #else
-          printf(" compressing file %s\r\n",strupr(rec.filename));
+          printf(" compressing file %s...",strupr(rec.filename));
 #endif
         if(SuperFileOpen(&f,filename,!totfiles ? OPEN_WRITE : OPEN_APPEND,TYPE_BINARY /*| SHARE_READ*/)) {
           if(totfiles)
@@ -2025,7 +2027,7 @@ file_type=0;
             break;
           }
         else
-          err_puts("error opening file");
+          err_puts("\r\nerror opening file");
         } while(!SuperFileFindNext(mydrive,&rec));
 // fare strtok filename in input e rifare, cercando spazi o '+'      goto rifo_zip;
         
